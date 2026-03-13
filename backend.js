@@ -44,6 +44,7 @@ async function hydrateFromBackendWithRetry(showAuthenticatedToast, attempts = 4)
   }
   throw new Error("La sesion del servidor no pudo consolidarse en este navegador.");
 }
+window.__sgeHydrateFromBackend = hydrateFromBackendWithRetry;
 
 function isHostedMode() {
   return window.location.protocol !== "file:";

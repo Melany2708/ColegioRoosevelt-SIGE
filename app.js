@@ -65,6 +65,7 @@ const state = {
 };
 
 const refs = {};
+let hostedLoginInFlight = false;
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -121,9 +122,7 @@ function cacheDom() {
 }
 
 function bindStaticEvents() {
-  if (!isHostedRuntime()) {
-    refs.loginForm.addEventListener("submit", handleLogin);
-  }
+  refs.loginForm.addEventListener("submit", isHostedRuntime() ? handleHostedLoginSubmit : handleLogin);
   document.getElementById("recoverPasswordBtn").addEventListener("click", () => {
     showToast("Solicita el restablecimiento de contrasena al administrador del sistema.");
   });
@@ -173,6 +172,61 @@ function consumeAuthFlashFromUrl() {
   url.searchParams.delete("logout");
   const nextUrl = `${url.pathname}${url.search}${url.hash}`;
   window.history.replaceState({}, document.title, nextUrl || "/");
+}
+
+async function handleHostedLoginSubmit(event) {
+  event.preventDefault();
+
+  if (hostedLoginInFlight) {
+    return;
+  }
+
+  hostedLoginInFlight = true;
+  const form = event.currentTarget;
+  const submitButton = form.querySelector('button[type="submit"]');
+  const originalLabel = submitButton ? submitButton.textContent : "";
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Validando...";
+  }
+
+  try {
+    const formData = new FormData(form);
+    const response = await fetch("/api/login", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        username: normalizeText(formData.get("username")),
+        password: String(formData.get("password") || "")
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || "Credenciales invalidas.");
+    }
+
+    if (typeof window.__sgeHydrateFromBackend === "function") {
+      await window.__sgeHydrateFromBackend(true);
+    } else {
+      window.location.reload();
+      return;
+    }
+
+    if (!state.session) {
+      throw new Error("El inicio fue aceptado, pero este navegador no consolido la sesion. Revisa cookies y vuelve a intentar.");
+    }
+  } catch (error) {
+    showToast(error.message || "No se pudo iniciar sesion.", "error");
+  } finally {
+    hostedLoginInFlight = false;
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalLabel || "Ingresar al sistema";
+    }
+  }
 }
 
 function createDefaultData() {
