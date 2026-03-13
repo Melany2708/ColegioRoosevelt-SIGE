@@ -1,0 +1,20 @@
+[
+  {
+    "username": "admin",
+    "password": "CAMBIAR-ANTES-DE-PRODUCCION",
+    "name": "Melanie Castro Jones",
+    "role": "Administrador"
+  },
+  {
+    "username": "direccion",
+    "password": "CAMBIAR-ANTES-DE-PRODUCCION",
+    "name": "Valeria Stone",
+    "role": "Direccion"
+  },
+  {
+    "username": "accesos",
+    "password": "CAMBIAR-ANTES-DE-PRODUCCION",
+    "name": "Responsable de accesos",
+    "role": "Control de accesos"
+  }
+]

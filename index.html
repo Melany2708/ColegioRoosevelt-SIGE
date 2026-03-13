@@ -1,0 +1,197 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S. Gestion Integral Escolar | Colegio Preuniversitario "Roosevelt"</title>
+  <link rel="stylesheet" href="/styles.css?v=20260313-authfix">
+</head>
+<body>
+  <div class="page-backdrop" aria-hidden="true"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <section id="loginView" class="login-view">
+    <div class="hero-panel">
+      <div class="hero-brand">
+        <div class="brand-mark" aria-label="Logo Colegio Privado Roosevelt"></div>
+        <div>
+          <p class="eyebrow">S. Gestion Integral Escolar</p>
+          <h1>Colegio Preuniversitario "Roosevelt"</h1>
+        </div>
+      </div>
+
+      <p class="hero-copy">
+        Base inicial lista para una institucion educativa privada: matriculas, perfil del alumno,
+        control academico, pagos, documentos, reportes y tablero administrativo con modulos independientes por pestana.
+      </p>
+
+      <div class="hero-grid">
+        <article class="hero-card">
+          <h2>Modulos cubiertos</h2>
+          <ul>
+            <li>Login con roles y bitacora de accesos</li>
+            <li>Matricula y admision con control de vacantes</li>
+            <li>Perfil integral del alumno</li>
+            <li>Academico, planificacion, horarios y personal</li>
+            <li>Finanzas, contabilidad, utiles, actividades y reportes</li>
+          </ul>
+        </article>
+
+        <article class="hero-card">
+          <h2>Estado de acceso</h2>
+          <ul class="credentials">
+            <li>Verificando acceso institucional...</li>
+            <li>Usa tu usuario y contrasena asignados.</li>
+          </ul>
+          <div class="button-row">
+            <button type="button" class="button button-secondary" data-open-public-simulations="true">Consultar simulacro</button>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <form id="loginForm" class="login-card" method="post" action="/api/login-web">
+      <div class="section-heading">
+        <p class="eyebrow">Acceso seguro</p>
+        <h2>Iniciar sesion</h2>
+      </div>
+
+      <label class="field">
+        <span>Usuario</span>
+        <input id="usernameInput" name="username" type="text" autocomplete="username" placeholder="Ingrese su usuario" required>
+      </label>
+
+      <label class="field">
+        <span>Contrasena</span>
+        <input id="passwordInput" name="password" type="password" autocomplete="current-password" placeholder="Ingrese su contrasena" required>
+      </label>
+
+      <button type="submit" class="button button-primary button-block">Ingresar al sistema</button>
+      <button type="button" id="recoverPasswordBtn" class="button button-secondary button-block">Recuperar contrasena</button>
+
+      <p class="helper-text">
+        La sesion activa queda registrada en la bitacora centralizada del sistema.
+      </p>
+    </form>
+  </section>
+
+  <section id="publicSimulacroView" class="public-lookup-view hidden">
+    <article class="hero-panel">
+      <div class="hero-brand">
+        <div class="brand-mark" aria-label="Logo Colegio Privado Roosevelt"></div>
+        <div>
+          <p class="eyebrow">Consulta publica</p>
+          <h1>Resultados de simulacros</h1>
+        </div>
+      </div>
+
+      <p class="hero-copy">
+        Consulta tus resultados de simulacro ingresando el DNI del estudiante. La informacion se mostrara
+        en tiempo real con el nombre del simulacro, la fecha, el puntaje y el puesto obtenido.
+      </p>
+
+      <article class="hero-card public-link-card">
+        <h2>Acceso para estudiantes</h2>
+        <p id="publicSimulationUrlText" class="supporting-copy">Comparte este enlace publico de consulta de simulacros.</p>
+        <div class="button-row">
+          <button type="button" class="button button-primary" data-copy-public-simulations-link="true">Copiar enlace</button>
+          <button type="button" class="button button-secondary" data-close-public-simulations="true">Volver al login</button>
+        </div>
+      </article>
+    </article>
+
+    <article class="login-card">
+      <div class="section-heading">
+        <p class="eyebrow">Busqueda por DNI</p>
+        <h2>Consultar simulacro</h2>
+      </div>
+
+      <form id="publicSimulationLookupForm" class="form-stack">
+        <label class="field">
+          <span>DNI del estudiante</span>
+          <input id="publicSimulationDni" name="dni" type="text" minlength="8" maxlength="8" placeholder="Ingrese el DNI" required>
+        </label>
+
+        <label class="field">
+          <span>Simulacro</span>
+          <select id="publicSimulationType" name="simulationType">
+            <option value="Todas">Todos los simulacros</option>
+            <option value="Primer simulacro">Primer simulacro</option>
+            <option value="Segundo simulacro">Segundo simulacro</option>
+            <option value="Tercer simulacro">Tercer simulacro</option>
+          </select>
+        </label>
+
+        <button type="submit" class="button button-primary button-block">Buscar resultado</button>
+      </form>
+
+      <div id="publicSimulationResults" class="lookup-result-grid"></div>
+    </article>
+  </section>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div class="brand-mark brand-mark-small" aria-label="Logo Colegio Privado Roosevelt"></div>
+        <div>
+          <p class="eyebrow">Institucion privada</p>
+          <h2 id="schoolName">Colegio Privado Roosevelt</h2>
+        </div>
+      </div>
+
+      <div class="sidebar-summary">
+        <p id="sidebarRole" class="role-badge">Administrador</p>
+        <p id="sidebarUser" class="sidebar-user">Usuario</p>
+      </div>
+
+      <nav id="navMenu" class="nav-menu" aria-label="Modulos del sistema"></nav>
+
+      <div class="sidebar-foot">
+        <p>Acceso web, responsive y listo para evolucionar a produccion.</p>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">S. Gestion Integral Escolar</p>
+          <h1>Colegio Preuniversitario "Roosevelt"</h1>
+          <p id="topbarDate" class="topbar-date"></p>
+        </div>
+
+        <div class="topbar-actions">
+          <label class="search-box">
+            <span>Buscar alumno</span>
+            <input id="globalSearch" type="search" placeholder="Nombre, DNI o codigo">
+          </label>
+          <button id="printPageBtn" type="button" class="button button-secondary">Imprimir vista</button>
+          <button id="logoutBtn" type="button" class="button button-primary">Cerrar sesion</button>
+        </div>
+      </header>
+
+      <section id="dashboardSection" class="content-section" data-section="dashboard"></section>
+      <section id="directionSection" class="content-section" data-section="direction"></section>
+      <section id="attendanceSection" class="content-section" data-section="attendance"></section>
+      <section id="admissionsSection" class="content-section" data-section="admissions"></section>
+      <section id="profileSection" class="content-section" data-section="profile"></section>
+      <section id="academicSection" class="content-section" data-section="academic"></section>
+      <section id="planningSection" class="content-section" data-section="planning"></section>
+      <section id="staffSection" class="content-section" data-section="staff"></section>
+      <section id="scheduleSection" class="content-section" data-section="schedule"></section>
+      <section id="financeSection" class="content-section" data-section="finance"></section>
+      <section id="accountingSection" class="content-section" data-section="accounting"></section>
+      <section id="suppliesSection" class="content-section" data-section="supplies"></section>
+      <section id="activitiesSection" class="content-section" data-section="activities"></section>
+      <section id="reportsSection" class="content-section" data-section="reports"></section>
+      <section id="documentsSection" class="content-section" data-section="documents"></section>
+      <section id="credentialsSection" class="content-section" data-section="credentials"></section>
+      <section id="securitySection" class="content-section" data-section="security"></section>
+      <section id="settingsSection" class="content-section" data-section="settings"></section>
+    </main>
+  </div>
+
+  <script src="/app.js?v=20260313-authfix"></script>
+  <script src="/enhancements.js?v=20260313-authfix"></script>
+  <script src="/backend.js?v=20260313-authfix"></script>
+</body>
+</html>

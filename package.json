@@ -1,0 +1,19 @@
+﻿{
+  "name": "colegio-privado-roosevelt",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema de gestion educativa con frontend web y backend para Netlify Functions.",
+  "scripts": {
+    "check": "node --check app.js && node --check enhancements.js && node --check backend.js",
+    "seed:users": "node scripts/seed-users.mjs",
+    "dev": "netlify dev"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "pg": "^8.16.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
+
