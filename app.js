@@ -2226,6 +2226,33 @@ function showToast(message, tone = "info") {
   showToast.timerId = window.setTimeout(() => {
     refs.toast.classList.remove("is-visible");
   }, 3200);
+
+  /* ============================
+   EXPOSICION GLOBAL PARA BACKEND
+   ============================ */
+
+window.STORAGE_KEYS = STORAGE_KEYS;
+window.state = state;
+window.refs = refs;
+
+/* utilidades usadas por backend.js */
+window.loadFromStorage = loadFromStorage;
+window.saveToStorage = saveToStorage;
+window.normalizeText = normalizeText;
+window.escapeHtml = escapeHtml;
+window.formatDateLong = formatDateLong;
+window.showToast = showToast;
+
+/* funciones de sesión */
+window.handleLogin = handleLogin;
+window.handleLogout = handleLogout;
+
+/* funciones de registro */
+window.recordLog = recordLog;
+
+/* render */
+window.renderSecuritySection = renderSecuritySection;
+window.renderApp = renderApp;
 }
 
 
