@@ -1,4 +1,3 @@
-```javascript
 (function () {
   "use strict";
 
@@ -20,19 +19,17 @@
     return;
   }
 
-  const fallbackLoadFromStorage = function fallbackLoadFromStorage(key, fallbackValue) {
+  const fallbackLoadFromStorage = function (key, fallbackValue) {
     try {
       const raw = window.localStorage.getItem(key);
-      if (!raw) {
-        return fallbackValue;
-      }
+      if (!raw) return fallbackValue;
       return JSON.parse(raw);
     } catch (error) {
       return fallbackValue;
     }
   };
 
-  const fallbackSaveToStorage = function fallbackSaveToStorage(key, value) {
+  const fallbackSaveToStorage = function (key, value) {
     try {
       if (value === null) {
         window.localStorage.removeItem(key);
@@ -40,16 +37,16 @@
       }
       window.localStorage.setItem(key, JSON.stringify(value));
     } catch (error) {
-      // ignore storage failures
+      // ignore
     }
   };
 
   const localLoadFromStorage = hasFn(window.loadFromStorage) ? window.loadFromStorage : fallbackLoadFromStorage;
   const localSaveToStorage = hasFn(window.saveToStorage) ? window.saveToStorage : fallbackSaveToStorage;
-  const localHandleLogin = hasFn(window.handleLogin) ? window.handleLogin : async function noopLogin() {};
-  const localHandleLogout = hasFn(window.handleLogout) ? window.handleLogout : async function noopLogout() {};
-  const localRecordLog = hasFn(window.recordLog) ? window.recordLog : function noopRecordLog() {};
-  const localRenderSecuritySection = hasFn(window.renderSecuritySection) ? window.renderSecuritySection : function noopRenderSecuritySection() {};
+  const localHandleLogin = hasFn(window.handleLogin) ? window.handleLogin : async function () {};
+  const localHandleLogout = hasFn(window.handleLogout) ? window.handleLogout : async function () {};
+  const localRecordLog = hasFn(window.recordLog) ? window.recordLog : function () {};
+  const localRenderSecuritySection = hasFn(window.renderSecuritySection) ? window.renderSecuritySection : function () {};
 
   const LOGIN_PREFERENCES_KEY = "sge_login_preferences_v1";
 
@@ -71,7 +68,9 @@
   window.__backendRuntime = backendRuntime;
 
   function wait(ms) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
+    return new Promise(function (resolve) {
+      window.setTimeout(resolve, ms);
+    });
   }
 
   function isHostedMode() {
@@ -83,16 +82,15 @@
   }
 
   function submitHostedLoginForm(form) {
-    if (!form) {
-      return;
-    }
+    if (!form) return;
     HTMLFormElement.prototype.submit.call(form);
   }
 
-  async function hydrateFromBackendWithRetry(showAuthenticatedToast, attempts = 4) {
+  async function hydrateFromBackendWithRetry(showAuthenticatedToast, attempts) {
+    const totalAttempts = typeof attempts === "number" ? attempts : 4;
     let lastError = null;
 
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
+    for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
       try {
         const response = await hydrateFromBackend(showAuthenticatedToast && attempt === 0);
         if (window.state.session) {
@@ -104,23 +102,20 @@
       await wait(180 * (attempt + 1));
     }
 
-    if (lastError) {
-      throw lastError;
-    }
-
+    if (lastError) throw lastError;
     throw new Error("La sesion del servidor no pudo consolidarse en este navegador.");
   }
 
   window.__sgeHydrateFromBackend = hydrateFromBackendWithRetry;
 
-  window.loadFromStorage = function loadFromStorageBackendAware(key, fallbackValue) {
+  window.loadFromStorage = function (key, fallbackValue) {
     if (isHostedMode() && key === window.STORAGE_KEYS.session) {
       return null;
     }
     return localLoadFromStorage(key, fallbackValue);
   };
 
-  window.saveToStorage = function saveToStorageBackendAware(key, value) {
+  window.saveToStorage = function (key, value) {
     localSaveToStorage(key, value);
 
     if (!backendRuntime.available || !backendRuntime.authenticated || !backendRuntime.remoteLoaded) {
@@ -132,12 +127,12 @@
     }
   };
 
-  window.handleLogin = async function handleLoginBackend(event) {
+  window.handleLogin = async function (event) {
     if (event && hasFn(event.preventDefault)) {
       event.preventDefault();
     }
 
-    const currentTarget = event?.currentTarget || window.refs.loginForm || null;
+    const currentTarget = (event && event.currentTarget) || window.refs.loginForm || null;
 
     if (useNativeHostedAuth()) {
       submitHostedLoginForm(currentTarget);
@@ -178,7 +173,7 @@
       const response = await apiFetch("/login", {
         method: "POST",
         body: {
-          username,
+          username: username,
           password: String(formData.get("password") || "")
         }
       });
@@ -195,13 +190,16 @@
       }
 
       try {
-        window.localStorage.setItem(LOGIN_PREFERENCES_KEY, JSON.stringify({ lastUsername: username }));
+        window.localStorage.setItem(
+          LOGIN_PREFERENCES_KEY,
+          JSON.stringify({ lastUsername: username })
+        );
       } catch (error) {
         // ignore
       }
 
       if (hasFn(window.showToast)) {
-        window.showToast(`Bienvenido(a), ${window.state.session.name}.`);
+        window.showToast("Bienvenido(a), " + window.state.session.name + ".");
       }
     } catch (error) {
       if (hasFn(window.showToast)) {
@@ -219,7 +217,7 @@
 
   window.__backendHandleLogin = window.handleLogin;
 
-  window.handleLogout = async function handleLogoutBackend() {
+  window.handleLogout = async function () {
     if (useNativeHostedAuth()) {
       window.location.assign("/api/logout-web");
       return;
@@ -254,20 +252,24 @@
 
   window.__backendHandleLogout = window.handleLogout;
 
-  window.recordLog = function recordLogBackend(user, action) {
+  window.recordLog = function (user, action) {
     if (!backendRuntime.available || !backendRuntime.authenticated || !backendRuntime.remoteLoaded) {
       localRecordLog(user, action);
       return;
     }
 
-    const source = user || window.state.session || { username: "sistema", name: "Sistema", role: "Administrador" };
+    const source = user || window.state.session || {
+      username: "sistema",
+      name: "Sistema",
+      role: "Administrador"
+    };
 
     const optimisticLog = {
-      id: `TMP-${Date.now()}`,
+      id: "TMP-" + Date.now(),
       user: source.username || "sistema",
       name: source.name || "Sistema",
       role: source.role || "Administrador",
-      action,
+      action: action,
       timestamp: new Date().toISOString()
     };
 
@@ -285,18 +287,21 @@
     apiFetch("/audit-log", {
       method: "POST",
       body: {
-        action,
+        action: action,
         details: {
           source: "frontend"
         }
       }
     })
-      .then((response) => {
+      .then(function (response) {
         if (!response.ok || !response.log) {
           return;
         }
 
-        const index = window.state.logs.findIndex((item) => item.id === optimisticLog.id);
+        const index = window.state.logs.findIndex(function (item) {
+          return item.id === optimisticLog.id;
+        });
+
         if (index >= 0) {
           window.state.logs[index] = response.log;
           localSaveToStorage(window.STORAGE_KEYS.logs, window.state.logs);
@@ -305,12 +310,12 @@
           }
         }
       })
-      .catch(() => {
+      .catch(function () {
         // keep optimistic log
       });
   };
 
-  window.renderSecuritySection = function renderSecuritySectionBackend() {
+  window.renderSecuritySection = function () {
     localRenderSecuritySection();
 
     const container = window.refs.sections && window.refs.sections.security;
@@ -320,33 +325,35 @@
 
     const backendStatus = backendRuntime.available ? "Backend activo" : "Modo local";
     const syncStatus = backendRuntime.available
-      ? backendRuntime.syncInFlight
-        ? "Sincronizando cambios con el servidor"
-        : backendRuntime.remoteLoaded
-          ? "Datos conectados a la base central"
-          : "Esperando autenticacion"
+      ? (backendRuntime.syncInFlight
+          ? "Sincronizando cambios con el servidor"
+          : (backendRuntime.remoteLoaded
+              ? "Datos conectados a la base central"
+              : "Esperando autenticacion"))
       : "localStorage en el navegador";
 
     const expiresAt =
-      window.state.session && window.state.session.expiresAt && hasFn(window.formatDateLong)
+      window.state.session &&
+      window.state.session.expiresAt &&
+      hasFn(window.formatDateLong)
         ? window.formatDateLong(window.state.session.expiresAt)
         : "-";
 
-    const escapeHtml = hasFn(window.escapeHtml) ? window.escapeHtml : (value) => String(value || "");
+    const escapeHtml = hasFn(window.escapeHtml) ? window.escapeHtml : function (value) {
+      return String(value || "");
+    };
 
     container.insertAdjacentHTML(
       "afterbegin",
-      `
-      <article class="glass-card backend-security-card">
-        <h3>Estado del backend</h3>
-        <div class="inline-metrics">
-          <span class="tag">${escapeHtml(backendStatus)}</span>
-          <span class="tag">${escapeHtml(syncStatus)}</span>
-          <span class="tag">Fuente: ${escapeHtml(backendRuntime.snapshotSource)}</span>
-        </div>
-        <p class="supporting-copy">Sesion del servidor: ${escapeHtml(expiresAt)}</p>
-      </article>
-    `
+      '<article class="glass-card backend-security-card">' +
+        "<h3>Estado del backend</h3>" +
+        '<div class="inline-metrics">' +
+          '<span class="tag">' + escapeHtml(backendStatus) + "</span>" +
+          '<span class="tag">' + escapeHtml(syncStatus) + "</span>" +
+          '<span class="tag">Fuente: ' + escapeHtml(backendRuntime.snapshotSource) + "</span>" +
+        "</div>" +
+        '<p class="supporting-copy">Sesion del servidor: ' + escapeHtml(expiresAt) + "</p>" +
+      "</article>"
     );
   };
 
@@ -396,9 +403,7 @@
     backendRuntime.remoteLoaded = true;
     backendRuntime.snapshotSource = response.snapshotSource || "database";
 
-    window.state.data =
-      hasFn(window.hydrateData) ? window.hydrateData(response.state) : response.state;
-
+    window.state.data = hasFn(window.hydrateData) ? window.hydrateData(response.state) : response.state;
     window.state.logs = Array.isArray(response.logs) ? response.logs : [];
     window.state.session = {
       username: response.session.username,
@@ -432,17 +437,9 @@
   }
 
   function shouldImportLocalState(response) {
-    if (!response || !response.authenticated) {
-      return false;
-    }
-
-    if (!response.user || response.user.role !== "Administrador") {
-      return false;
-    }
-
-    if (response.snapshotSource !== "default") {
-      return false;
-    }
+    if (!response || !response.authenticated) return false;
+    if (!response.user || response.user.role !== "Administrador") return false;
+    if (response.snapshotSource !== "default") return false;
 
     const localData = localLoadFromStorage(window.STORAGE_KEYS.data, null);
     if (!localData || !Array.isArray(localData.students) || !localData.students.length) {
@@ -469,9 +466,7 @@
     const localData = localLoadFromStorage(window.STORAGE_KEYS.data, null);
     const localLogs = localLoadFromStorage(window.STORAGE_KEYS.logs, []);
 
-    if (!localData) {
-      return;
-    }
+    if (!localData) return;
 
     await apiFetch("/import-local", {
       method: "POST",
@@ -486,8 +481,11 @@
     }
   }
 
-  function scheduleStateSync(action = "Actualizacion de datos centralizados", scope = "ui-mutation") {
-    backendRuntime.pendingAction = { action, scope };
+  function scheduleStateSync(action, scope) {
+    backendRuntime.pendingAction = {
+      action: action || "Actualizacion de datos centralizados",
+      scope: scope || "ui-mutation"
+    };
 
     if (backendRuntime.syncTimer) {
       window.clearTimeout(backendRuntime.syncTimer);
@@ -539,29 +537,33 @@
     }
   }
 
-  async function apiFetch(path, options = {}, allowAnonymous = false) {
+  async function apiFetch(path, options, allowAnonymous) {
+    const opts = options || {};
+    const anonymous = Boolean(allowAnonymous);
+
     const requestOptions = {
-      method: options.method || "GET",
+      method: opts.method || "GET",
       credentials: "same-origin",
-      headers: {
-        ...(options.body ? { "content-type": "application/json" } : {}),
-        ...(options.headers || {})
-      }
+      headers: Object.assign(
+        {},
+        opts.body ? { "content-type": "application/json" } : {},
+        opts.headers || {}
+      )
     };
 
-    if (options.body) {
-      requestOptions.body = JSON.stringify(options.body);
+    if (opts.body) {
+      requestOptions.body = JSON.stringify(opts.body);
     }
 
-    const response = await fetch(`/api${path}`, requestOptions);
+    const response = await fetch("/api" + path, requestOptions);
     const payload = await readApiPayload(response);
 
-    if (!response.ok && !allowAnonymous) {
-      throw new Error(payload.error || `Error ${response.status}`);
+    if (!response.ok && !anonymous) {
+      throw new Error(payload.error || ("Error " + response.status));
     }
 
-    if (!response.ok && allowAnonymous) {
-      throw new Error(payload.error || `Error ${response.status}`);
+    if (!response.ok && anonymous) {
+      throw new Error(payload.error || ("Error " + response.status));
     }
 
     return payload;
@@ -587,23 +589,20 @@
 
     if (credentialsList) {
       if (backendRuntime.available && backendRuntime.setupRequired) {
-        credentialsList.innerHTML = `
-          <li>Backend detectado correctamente.</li>
-          <li>Falta ejecutar <code>db/schema.sql</code> y <code>npm run seed:users</code>.</li>
-          <li>Despues de eso el login quedara controlado por la base de datos.</li>
-        `;
+        credentialsList.innerHTML =
+          "<li>Backend detectado correctamente.</li>" +
+          "<li>Falta ejecutar <code>db/schema.sql</code> y <code>npm run seed:users</code>.</li>" +
+          "<li>Despues de eso el login quedara controlado por la base de datos.</li>";
       } else if (backendRuntime.available) {
-        credentialsList.innerHTML = `
-          <li>La autenticacion ya se valida desde el servidor.</li>
-          <li>Las credenciales viven en la base de datos centralizada.</li>
-          <li>Las sesiones usan cookies seguras y control del lado servidor.</li>
-        `;
+        credentialsList.innerHTML =
+          "<li>La autenticacion ya se valida desde el servidor.</li>" +
+          "<li>Las credenciales viven en la base de datos centralizada.</li>" +
+          "<li>Las sesiones usan cookies seguras y control del lado servidor.</li>";
       } else {
-        credentialsList.innerHTML = `
-          <li>Verificando acceso institucional...</li>
-          <li>Ingresa con tu usuario y contrasena asignados.</li>
-          <li>El acceso se muestra con informacion institucional.</li>
-        `;
+        credentialsList.innerHTML =
+          "<li>Verificando acceso institucional...</li>" +
+          "<li>Ingresa con tu usuario y contrasena asignados.</li>" +
+          "<li>El acceso se muestra con informacion institucional.</li>";
       }
     }
 
@@ -637,7 +636,7 @@
   }
 
   function interceptAuthSubmit(event) {
-    if (event.target?.id !== "loginForm") {
+    if (!event.target || event.target.id !== "loginForm") {
       return;
     }
 
@@ -645,13 +644,13 @@
     event.stopImmediatePropagation();
 
     window.handleLogin({
-      preventDefault() {},
+      preventDefault: function () {},
       currentTarget: event.target
     });
   }
 
   function interceptAuthClick(event) {
-    const logoutButton = event.target?.closest?.("#logoutBtn");
+    const logoutButton = event.target && event.target.closest ? event.target.closest("#logoutBtn") : null;
     if (!logoutButton) {
       return;
     }
@@ -661,7 +660,7 @@
     window.handleLogout();
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
+  document.addEventListener("DOMContentLoaded", function () {
     rebindAuthControlsToBackend();
 
     if (!useNativeHostedAuth()) {
@@ -673,4 +672,3 @@
     initializeBackend();
   });
 })();
-```
