@@ -1,4 +1,4 @@
-﻿const STORAGE_KEYS = {
+const STORAGE_KEYS = {
   data: "sge_demo_data_v1",
   logs: "sge_demo_logs_v1",
   session: "sge_demo_session_v1"
@@ -2226,6 +2226,7 @@ function showToast(message, tone = "info") {
   showToast.timerId = window.setTimeout(() => {
     refs.toast.classList.remove("is-visible");
   }, 3200);
+}
 
 window.STORAGE_KEYS = STORAGE_KEYS;
 window.state = state;
@@ -2242,7 +2243,4 @@ window.normalizeText = normalizeText;
 window.formatDateLong = formatDateLong;
 window.escapeHtml = escapeHtml;
 window.showToast = showToast;
-
-}
-
 
