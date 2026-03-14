@@ -11,26 +11,6 @@
     window.alert(message);
   }
 
-  async function hydrateSession() {
-    if (typeof window.__sgeHydrateFromBackend === "function") {
-      await window.__sgeHydrateFromBackend(true);
-      return;
-    }
-
-    const response = await fetch("/api/bootstrap", {
-      method: "GET",
-      credentials: "same-origin",
-      headers: {
-        "cache-control": "no-store"
-      }
-    });
-    const payload = await response.json();
-    if (!response.ok || !payload.authenticated) {
-      throw new Error(payload.error || "No se pudo validar la sesion despues del ingreso.");
-    }
-    window.location.reload();
-  }
-
   async function handleLoginSubmit(event) {
     const form = event.target?.closest?.("#loginForm");
     if (!form) {
@@ -64,11 +44,8 @@
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Credenciales invalidas.");
       }
-
-      await hydrateSession();
-      if (window.state?.session) {
-        notify(`Bienvenido(a), ${window.state.session.name}.`, "success");
-      }
+      window.location.assign(`/?auth_ok=1&t=${Date.now()}`);
+      return;
     } catch (error) {
       notify(error.message || "No se pudo iniciar sesion.", "error");
     } finally {

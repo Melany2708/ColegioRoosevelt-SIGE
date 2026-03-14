@@ -157,8 +157,9 @@ function consumeAuthFlashFromUrl() {
   const url = new URL(window.location.href);
   const loginError = url.searchParams.get("login_error");
   const loggedOut = url.searchParams.get("logout");
+  const authOk = url.searchParams.get("auth_ok");
 
-  if (!loginError && !loggedOut) {
+  if (!loginError && !loggedOut && !authOk) {
     return;
   }
 
@@ -166,10 +167,14 @@ function consumeAuthFlashFromUrl() {
     showToast(loginError, "error");
   } else if (loggedOut === "1") {
     showToast("La sesion fue cerrada correctamente.");
+  } else if (authOk === "1" && state.session) {
+    showToast(`Bienvenido(a), ${state.session.name}.`, "success");
   }
 
   url.searchParams.delete("login_error");
   url.searchParams.delete("logout");
+  url.searchParams.delete("auth_ok");
+  url.searchParams.delete("t");
   const nextUrl = `${url.pathname}${url.search}${url.hash}`;
   window.history.replaceState({}, document.title, nextUrl || "/");
 }
