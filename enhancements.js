@@ -429,14 +429,32 @@ renderChrome = function renderChromeEnhanced() {
 
 renderSidebar = function renderSidebarEnhanced() {
   const allowed = getAllowedSections();
-  refs.navMenu.innerHTML = MODULES
-    .filter((moduleItem) => allowed.includes(moduleItem.id))
+  const teacherModuleOrder = ["dashboard", "academic", "attendance", "profile", "planning", "schedule", "activities", "documents"];
+  const teacherModuleLabels = {
+    dashboard: { label: "Panel docente", hint: "Resumen diario" },
+    academic: { label: "Notas", hint: "Trimestres y promedios" },
+    attendance: { label: "Asistencia", hint: "Tus secciones" },
+    profile: { label: "Mis alumnos", hint: "Matriculados por aula" },
+    planning: { label: "Planificacion", hint: "Seguimiento propio" },
+    schedule: { label: "Mis horarios", hint: "Aulas asignadas" },
+    activities: { label: "Actividades", hint: "Agenda institucional" },
+    documents: { label: "Constancias", hint: "Documentos" }
+  };
+  const sourceModules = state.session?.role === "Docentes"
+    ? teacherModuleOrder
+      .map((moduleId) => MODULES.find((moduleItem) => moduleItem.id === moduleId))
+      .filter(Boolean)
+      .filter((moduleItem) => allowed.includes(moduleItem.id))
+    : MODULES.filter((moduleItem) => allowed.includes(moduleItem.id));
+
+  refs.navMenu.innerHTML = sourceModules
     .map((moduleItem) => {
       const activeClass = state.activeSection === moduleItem.id ? "is-active" : "";
+      const roleAwareCopy = state.session?.role === "Docentes" ? teacherModuleLabels[moduleItem.id] || {} : {};
       return `
         <button class="nav-link ${activeClass}" type="button" data-nav-target="${moduleItem.id}">
-          <span>${escapeHtml(moduleItem.label)}</span>
-          <small>${escapeHtml(moduleItem.hint)}</small>
+          <span>${escapeHtml(roleAwareCopy.label || moduleItem.label)}</span>
+          <small>${escapeHtml(roleAwareCopy.hint || moduleItem.hint)}</small>
         </button>
       `;
     })
@@ -610,6 +628,16 @@ handleDynamicSubmit = function handleDynamicSubmitEnhanced(event) {
     const formData = new FormData(event.target);
     const role = String(formData.get("role") || "Administrativo");
     const name = String(formData.get("name") || "").trim();
+    const assignmentLevel = String(formData.get("assignmentLevel") || "Secundaria").trim();
+    const requestedAccessRole = String(formData.get("accessRole") || "automatic");
+    const defaultAccessRole = getDefaultCredentialRoleForStaff(role);
+    const credentialRole = ((role === "Docente" || role === ACCESS_MANAGER_ROLE) && requestedAccessRole === "none")
+      ? defaultAccessRole
+      : requestedAccessRole === "automatic"
+      ? defaultAccessRole
+      : requestedAccessRole === "none"
+        ? ""
+        : normalizeCredentialRole(requestedAccessRole);
     const person = {
       id: nextStaffId(role),
       name,
@@ -617,6 +645,7 @@ handleDynamicSubmit = function handleDynamicSubmitEnhanced(event) {
       area: String(formData.get("area") || "").trim(),
       courses: String(formData.get("courses") || "-").trim() || "-",
       grades: String(formData.get("grades") || "-").trim() || "-",
+      assignmentLevel,
       schedule: String(formData.get("schedule") || "").trim(),
       tenure: String(formData.get("tenure") || "Ingreso reciente").trim(),
       email: String(formData.get("email") || "").trim(),
@@ -630,6 +659,11 @@ handleDynamicSubmit = function handleDynamicSubmitEnhanced(event) {
       return;
     }
 
+    if (role === "Docente" && (person.courses === "-" || person.grades === "-")) {
+      showToast("Para registrar un docente indica sus cursos y las secciones asignadas.");
+      return;
+    }
+
     const finalizeStaffRegistration = (credentialResult = null) => {
       if (credentialResult?.account) {
         person.loginUsername = credentialResult.account.username;
@@ -638,6 +672,7 @@ handleDynamicSubmit = function handleDynamicSubmitEnhanced(event) {
 
       state.data.staff.push(person);
       if (role === "Docente") {
+        syncTeacherAssignmentsFromStaff(person, assignmentLevel);
         state.data.planning.push({
           teacherId: person.id,
           teacher: person.name,
@@ -654,26 +689,31 @@ handleDynamicSubmit = function handleDynamicSubmitEnhanced(event) {
       if (canManageCredentialAccounts()) {
         loadCredentialDirectory(true).then(() => renderCredentialsSection());
       }
-      showToast(role === "Docente" && credentialResult?.account
-        ? "Docente registrado con usuario y contrasena temporal generados."
+      showToast(credentialResult?.account
+        ? `${role === "Docente" ? "Docente" : "Personal"} registrado con usuario y contrasena temporal generados.`
         : "Personal registrado correctamente.");
     };
 
-    if (role === "Docente") {
+    if (credentialRole) {
       if (!canManageCredentialAccounts()) {
-        showToast("Para registrar docentes con acceso al sistema, inicia sesion como Administracion o Control de accesos.");
+        showToast("Para registrar personal con acceso al sistema, inicia sesion como Administracion o Control de accesos.");
         return;
       }
 
       createCredentialAccount({
         name: person.name,
-        role: "Docentes",
+        role: credentialRole,
+        username: String(formData.get("preferredUsername") || "").trim(),
         linkedStaffId: person.id,
-        sourceLabel: "Credenciales generadas al registrar docente"
+        sourceLabel: role === "Docente"
+          ? "Credenciales generadas al registrar docente"
+          : credentialRole === ACCESS_MANAGER_ROLE
+            ? "Credenciales generadas al registrar responsable de accesos"
+            : "Credenciales generadas al registrar personal"
       }).then((credentialResult) => {
         finalizeStaffRegistration(credentialResult);
       }).catch((error) => {
-        showToast(error.message || "No se pudo generar el acceso del docente.");
+        showToast(error.message || "No se pudo generar el acceso del personal.");
       });
       return;
     }
@@ -1934,7 +1974,7 @@ renderCredentialsSection = function renderCredentialsSectionManaged() {
       <article class="glass-card">
         <h3>Indicaciones</h3>
         <div class="notice-card">
-          <p>Cuando se registra un docente desde el modulo de personal, el sistema genera automaticamente su usuario y una contrasena temporal.</p>
+          <p>Cuando registras personal desde el modulo de personal, puedes dejar el acceso en modo automatico para que el sistema genere su usuario y una contrasena temporal segun el puesto.</p>
           <p>Por seguridad, las contrasenas antiguas no se listan en pantalla. Solo se muestran al crear o restablecer una cuenta.</p>
           <p>Si necesitas una persona dedicada solo a accesos, crea una cuenta con el rol <strong>${escapeHtml(ACCESS_MANAGER_ROLE)}</strong>.</p>
         </div>
@@ -2169,7 +2209,7 @@ hydrateData = function hydrateDataNormalized(sourceData) {
 
 getTeacherSections = function getTeacherSectionsNormalized(teacherName) {
   return state.data.courses
-    .filter((course) => course.teacher === teacherName)
+    .filter((course) => normalizeText(course.teacher) === normalizeText(teacherName))
     .map((course) => normalizeText(course.section));
 };
 
@@ -2181,6 +2221,107 @@ getStudentsForTeacher = function getStudentsForTeacherNormalized(teacherName) {
     return sections.has(shortKey) || sections.has(fullKey);
   });
 };
+
+function getTeacherSectionOptions(teacherName) {
+  const sections = new Map();
+  state.data.courses
+    .filter((course) => normalizeText(course.teacher) === normalizeText(teacherName))
+    .forEach((course) => {
+      const section = String(course.section || "").trim();
+      if (!section) {
+        return;
+      }
+      const key = normalizeText(section);
+      sections.set(key, {
+        value: section,
+        section,
+        level: String(course.level || "").trim(),
+        label: String(course.level || "").trim() ? `${course.level} ${section}` : section
+      });
+    });
+  return Array.from(sections.values());
+}
+
+function studentMatchesSection(student, sectionValue) {
+  const normalizedSection = normalizeText(sectionValue || "");
+  if (!normalizedSection) {
+    return true;
+  }
+  const shortKey = normalizeText(`${student.grade} ${student.section}`);
+  const fullKey = normalizeText(`${student.level} ${student.grade} ${student.section}`);
+  return shortKey === normalizedSection || fullKey === normalizedSection;
+}
+
+function getStudentsForTeacherSection(teacherName, sectionValue = "") {
+  return getStudentsForTeacher(teacherName).filter((student) => studentMatchesSection(student, sectionValue));
+}
+
+function getDefaultCredentialRoleForStaff(staffRole) {
+  const normalizedRole = String(staffRole || "").trim();
+  if (normalizedRole === "Docente") {
+    return "Docentes";
+  }
+  if (normalizedRole === ACCESS_MANAGER_ROLE) {
+    return ACCESS_MANAGER_ROLE;
+  }
+  if (normalizedRole === "Secretaria") {
+    return "Secretaria";
+  }
+  if (normalizedRole === "Tesoreria") {
+    return "Caja / tesoreria";
+  }
+  return "";
+}
+
+function normalizeStaffSectionValue(value) {
+  return String(value || "")
+    .replace(/^(inicial|primaria|secundaria)\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function syncTeacherAssignmentsFromStaff(person, assignmentLevel) {
+  const courses = splitList(person.courses === "-" ? person.area : person.courses);
+  const sections = splitList(person.grades)
+    .map((item) => normalizeStaffSectionValue(item))
+    .filter(Boolean);
+
+  if (!courses.length || !sections.length) {
+    return 0;
+  }
+
+  let created = 0;
+  courses.forEach((courseName) => {
+    sections.forEach((sectionName) => {
+      const exists = state.data.courses.some((course) =>
+        normalizeText(course.teacher) === normalizeText(person.name) &&
+        normalizeText(course.course) === normalizeText(courseName) &&
+        normalizeText(course.section) === normalizeText(sectionName)
+      );
+
+      if (exists) {
+        return;
+      }
+
+      state.data.courses.push({
+        course: courseName,
+        teacher: person.name,
+        section: sectionName,
+        level: assignmentLevel || "Primaria"
+      });
+      upsertGradeTable({
+        teacher: person.name,
+        course: courseName,
+        section: sectionName,
+        assessmentTypes: [...DEFAULT_ASSESSMENT_TYPES]
+      });
+      created += 1;
+    });
+  });
+
+  return created;
+}
+
 const previousUltimateHandleDynamicClick = handleDynamicClick;
 handleDynamicClick = function handleDynamicClickCrud(event) {
   const deleteStudentButton = event.target.closest("[data-delete-student]");
@@ -2445,7 +2586,7 @@ renderAdmissionsSection = function renderAdmissionsSectionEnhancedCrud() {
 renderStaffSection = function renderStaffSectionEnhancedCrud() {
   const totalTeachers = state.data.staff.filter((person) => person.role === "Docente").length;
   const totalAdministrative = state.data.staff.length - totalTeachers;
-  const canGenerateTeacherAccess = canManageCredentialAccounts();
+  const canGenerateStaffAccess = canManageCredentialAccounts();
   const credentialNotice = state.credentialsNotice && state.credentialsNotice.sourceLabel
     ? `
       <article class="notice-card">
@@ -2458,7 +2599,7 @@ renderStaffSection = function renderStaffSectionEnhancedCrud() {
     : "";
 
   refs.sections.staff.innerHTML = `
-    ${renderSectionHeader("Docentes y personal", "Registro y eliminacion de docentes y personal administrativo. Los docentes pueden salir con acceso generado automaticamente.")}
+    ${renderSectionHeader("Docentes y personal", "Registro, asignacion de secciones y generacion de accesos para docentes y personal administrativo.")}
 
     <div class="inline-metrics">
       <span class="tag">${totalTeachers} docentes</span>
@@ -2476,6 +2617,7 @@ renderStaffSection = function renderStaffSectionEnhancedCrud() {
             <span>Tipo</span>
             <select name="role">
               <option value="Docente">Docente</option>
+              <option value="${escapeHtml(ACCESS_MANAGER_ROLE)}">${escapeHtml(ACCESS_MANAGER_ROLE)}</option>
               <option value="Administrativo">Administrativo</option>
               <option value="Secretaria">Secretaria</option>
               <option value="Tesoreria">Tesoreria</option>
@@ -2503,21 +2645,41 @@ renderStaffSection = function renderStaffSectionEnhancedCrud() {
             <input name="schedule" type="text" placeholder="Lun a Vie 7:30 - 13:30" required>
           </label>
           <label class="field">
-            <span>Cursos asignados</span>
-            <input name="courses" type="text" placeholder="Solo si aplica">
+            <span>Nivel a cargo</span>
+            <select name="assignmentLevel">
+              <option value="Inicial">Inicial</option>
+              <option value="Primaria">Primaria</option>
+              <option value="Secundaria" selected>Secundaria</option>
+            </select>
           </label>
           <label class="field">
-            <span>Grados asignados</span>
-            <input name="grades" type="text" placeholder="Solo si aplica">
+            <span>Cursos asignados</span>
+            <input name="courses" type="text" placeholder="Ejemplo: Matematica, Algebra">
+          </label>
+          <label class="field">
+            <span>Secciones asignadas</span>
+            <input name="grades" type="text" placeholder="Ejemplo: 5° A, 5° B">
+          </label>
+          <label class="field">
+            <span>Rol de acceso institucional</span>
+            <select name="accessRole">
+              <option value="automatic">Automatico segun el puesto</option>
+              <option value="none">Sin acceso por ahora</option>
+              ${CREDENTIAL_ROLE_OPTIONS.map((role) => `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="field">
+            <span>Usuario sugerido</span>
+            <input name="preferredUsername" type="text" placeholder="Opcional, se genera automaticamente">
           </label>
           <label class="field field-full">
             <span>Historial laboral</span>
             <input name="tenure" type="text" placeholder="2026 - actual">
           </label>
           <p class="helper-text field-full">
-            ${canGenerateTeacherAccess
-              ? "Si eliges Docente, se creara automaticamente su usuario institucional y una contrasena temporal."
-              : "Solo Administracion y Control de accesos pueden emitir automaticamente credenciales para docentes."}
+            ${canGenerateStaffAccess
+              ? "Administracion puede dejar asignados cursos, secciones y acceso institucional en un solo registro."
+              : "Solo Administracion y Control de accesos pueden emitir usuarios y contrasenas desde este formulario."}
           </p>
           <div class="field field-full">
             <button class="button button-primary" type="submit">Registrar personal</button>
@@ -2535,8 +2697,9 @@ renderStaffSection = function renderStaffSectionEnhancedCrud() {
                 <th>Nombre</th>
                 <th>Rol</th>
                 <th>Area</th>
-                <th>Cursos / grados</th>
+                <th>Asignacion</th>
                 <th>Horario</th>
+                <th>Acceso</th>
                 <th>Accion</th>
               </tr>
             </thead>
@@ -2547,8 +2710,9 @@ renderStaffSection = function renderStaffSectionEnhancedCrud() {
                   <td>${escapeHtml(person.name)}<br><small>${escapeHtml(person.email)}</small>${getStaffCredentialUsername(person) ? `<br><small>Usuario: ${escapeHtml(getStaffCredentialUsername(person))}</small>` : ""}</td>
                   <td>${escapeHtml(person.role)}</td>
                   <td>${escapeHtml(person.area)}</td>
-                  <td>${escapeHtml(`${person.courses} · ${person.grades}`)}</td>
+                  <td>${escapeHtml(`${person.assignmentLevel || "-"} · ${person.courses} · ${person.grades}`)}</td>
                   <td>${escapeHtml(person.schedule)}</td>
+                  <td>${escapeHtml(person.authRole || "Sin acceso")}</td>
                   <td><button class="link-button" type="button" data-delete-staff="${person.id}">Eliminar</button></td>
                 </tr>
               `).join("")}
@@ -2743,8 +2907,13 @@ function deleteStaffCascade(staffId) {
   state.data.staff = state.data.staff.filter((item) => item.id !== staffId);
   state.data.planning = state.data.planning.filter((item) => item.teacherId !== staffId && item.teacher !== person.name);
   state.data.courses = state.data.courses.filter((course) => course.teacher !== person.name);
+  state.data.gradeTables = state.data.gradeTables.filter((table) => normalizeText(table.teacher) !== normalizeText(person.name));
+  state.credentialsDirectory = state.credentialsDirectory.filter((account) =>
+    account.username !== person.loginUsername &&
+    normalizeText(account.name) !== normalizeText(person.name)
+  );
   Object.keys(USERS).forEach((username) => {
-    if (USERS[username]?.role === "Docentes" && USERS[username]?.name === person.name) {
+    if (USERS[username]?.name === person.name || username === person.loginUsername) {
       delete USERS[username];
     }
   });
@@ -2794,11 +2963,11 @@ nextScheduleId = function nextScheduleIdRobust() {
 
 const TRIMESTER_OPTIONS = ["Trimestre 1", "Trimestre 2", "Trimestre 3"];
 const DEFAULT_ASSESSMENT_TYPES = [
+  "Tareas",
   "Examen de avance",
   "Examen trimestral",
-  "Trabajos",
-  "Exposiciones",
-  "Participacion en aula"
+  "Participacion",
+  "Trabajos"
 ];
 const SIMULATION_TYPES = ["Primer simulacro", "Segundo simulacro", "Tercer simulacro"];
 
@@ -2830,7 +2999,7 @@ ROLE_ACCESS.Administrador = Array.from(new Set([...(ROLE_ACCESS.Administrador ||
 ROLE_ACCESS.Direccion = Array.from(new Set([...(ROLE_ACCESS.Direccion || []), "direction", "attendance", "settings"]));
 ROLE_ACCESS.Secretaria = Array.from(new Set([...(ROLE_ACCESS.Secretaria || []), "attendance", "settings"]));
 ROLE_ACCESS.Administrador = Array.from(new Set([...(ROLE_ACCESS.Administrador || []), "attendance", "direction", "settings"]));
-ROLE_ACCESS.Docentes = ["dashboard", "academic", "planning", "schedule", "activities"];
+ROLE_ACCESS.Docentes = ["dashboard", "academic", "attendance", "profile", "planning", "schedule", "activities", "documents"];
 
 state.academicFilters = state.academicFilters || {
   assignmentKey: "",
@@ -2848,8 +3017,11 @@ state.directionFilters = state.directionFilters || {
 };
 state.attendanceFilters = state.attendanceFilters || {
   date: isoDate(0),
-  status: "Todos"
+  status: "Todos",
+  section: ""
 };
+state.attendanceFilters.section = state.attendanceFilters.section || "";
+state.teacherProfileSection = state.teacherProfileSection || "";
 
 const previousCacheDomDirection = cacheDom;
 cacheDom = function cacheDomDirection() {
@@ -3252,6 +3424,16 @@ function getStudentFinalAverage(studentId, assignment) {
   return trimesterAverages.reduce((total, value) => total + value, 0) / trimesterAverages.length;
 }
 
+function getCombinedAssignmentAverage(studentId, assignments = []) {
+  const averages = assignments
+    .map((assignment) => getStudentFinalAverage(studentId, assignment))
+    .filter((value) => value > 0);
+  if (!averages.length) {
+    return 0;
+  }
+  return averages.reduce((total, value) => total + value, 0) / averages.length;
+}
+
 function getSchedulesForTeacher(teacherName) {
   const sections = new Set(getTeacherSections(teacherName));
   return state.data.schedules.filter((schedule) => {
@@ -3480,6 +3662,18 @@ window.addEventListener("hashchange", () => {
 
 const previousHandleDynamicChangeDirection = handleDynamicChange;
 handleDynamicChange = function handleDynamicChangeDirection(event) {
+  if (event.target.id === "teacherProfileSectionFilter") {
+    state.teacherProfileSection = String(event.target.value || "");
+    renderProfileSection();
+    return;
+  }
+
+  if (event.target.id === "attendanceSectionFilter") {
+    state.attendanceFilters.section = String(event.target.value || "");
+    renderAttendanceSection();
+    return;
+  }
+
   if (event.target.id === "attendanceDateFilter") {
     state.attendanceFilters.date = String(event.target.value || isoDate(0));
     renderAttendanceSection();
@@ -4089,14 +4283,21 @@ renderDashboardSection = function renderDashboardSectionRoleAware() {
 
   const teacherName = getSessionDisplayName();
   const assignments = getVisibleAcademicAssignments(teacherName);
+  const assignedStudents = getStudentsForTeacher(teacherName);
   const planningItem = state.data.planning.find((item) => normalizeText(item.teacher) === normalizeText(teacherName));
   const teacherSchedules = getSchedulesForTeacher(teacherName);
   const upcomingActivities = [...state.data.activities].sort((left, right) => left.date.localeCompare(right.date)).slice(0, 4);
+  const todayAttendance = state.data.attendance.filter((entry) =>
+    entry.date === isoDate(0) &&
+    assignedStudents.some((student) => student.id === entry.studentId)
+  );
 
   refs.sections.dashboard.innerHTML = `
     ${renderSectionHeader("Panel docente", "Vista de trabajo diaria con tus cursos, aulas, horarios y actividades institucionales.", `
       <div class="button-row">
         <button class="button button-soft" type="button" data-open-section="academic">Ir a notas</button>
+        <button class="button button-soft" type="button" data-open-section="attendance">Tomar asistencia</button>
+        <button class="button button-secondary" type="button" data-open-section="profile">Ver mis alumnos</button>
         <button class="button button-secondary" type="button" data-open-section="schedule">Ver horarios</button>
       </div>
     `)}
@@ -4115,9 +4316,21 @@ renderDashboardSection = function renderDashboardSectionRoleAware() {
         <div class="accent-line"></div>
       </article>
       <article class="metric-card">
+        <h3>Alumnos asignados</h3>
+        <p class="metric-number">${assignedStudents.length}</p>
+        <p class="supporting-copy">Matriculados de tus aulas</p>
+        <div class="accent-line"></div>
+      </article>
+      <article class="metric-card">
         <h3>Horarios visibles</h3>
         <p class="metric-number">${teacherSchedules.length}</p>
         <p class="supporting-copy">Bloques ya asignados por administracion</p>
+        <div class="accent-line"></div>
+      </article>
+      <article class="metric-card">
+        <h3>Asistencias hoy</h3>
+        <p class="metric-number">${todayAttendance.length}</p>
+        <p class="supporting-copy">Registros del ${formatDate(isoDate(0))}</p>
         <div class="accent-line"></div>
       </article>
       <article class="metric-card">
@@ -4125,6 +4338,48 @@ renderDashboardSection = function renderDashboardSectionRoleAware() {
         <p class="metric-number">${planningItem ? formatPercent(planningItem.compliance) : "0%"}</p>
         <p class="supporting-copy">${planningItem ? planningItem.status : "Sin registro"}</p>
         <div class="accent-line"></div>
+      </article>
+    </div>
+
+    <div class="stack-grid">
+      <article class="glass-card">
+        <div class="chip-row">
+          <span class="tag">Notas</span>
+          <span class="tag">${TRIMESTER_OPTIONS.length} trimestres</span>
+        </div>
+        <h3>Registro academico del docente</h3>
+        <p>Ingresa tareas, examenes de avance, examenes trimestrales, participacion y trabajos solo para tus cursos asignados.</p>
+        <button class="button button-primary" type="button" data-open-section="academic">Abrir notas</button>
+      </article>
+
+      <article class="glass-card">
+        <div class="chip-row">
+          <span class="tag">Asistencia</span>
+          <span class="tag">${new Set(assignments.map((item) => item.section)).size} secciones</span>
+        </div>
+        <h3>Control diario por aula</h3>
+        <p>Marca presentes, tardanzas, ausencias o retiros solo para los estudiantes vinculados a tus secciones.</p>
+        <button class="button button-primary" type="button" data-open-section="attendance">Abrir asistencia</button>
+      </article>
+
+      <article class="glass-card">
+        <div class="chip-row">
+          <span class="tag">Matriculados</span>
+          <span class="tag">${assignedStudents.length} alumnos</span>
+        </div>
+        <h3>Alumnos por seccion</h3>
+        <p>Revisa el listado de estudiantes matriculados en las aulas que administracion te asigno.</p>
+        <button class="button button-primary" type="button" data-open-section="profile">Abrir mis alumnos</button>
+      </article>
+
+      <article class="glass-card">
+        <div class="chip-row">
+          <span class="tag">Horario</span>
+          <span class="tag">${teacherSchedules.length} visibles</span>
+        </div>
+        <h3>Bloques ya programados</h3>
+        <p>Consulta solo los horarios de las aulas que ya quedaron asignadas a tu usuario.</p>
+        <button class="button button-primary" type="button" data-open-section="schedule">Abrir horario</button>
       </article>
     </div>
 
@@ -4480,52 +4735,145 @@ renderProfileSection = function renderProfileSectionRoleAware() {
 
   const teacherName = getSessionDisplayName();
   const visibleStudents = getStudentsForTeacher(teacherName);
-  const selectedStudent = visibleStudents.find((student) => student.id === state.selectedStudentId) || visibleStudents[0];
+  const sectionOptions = getTeacherSectionOptions(teacherName);
+  const hasStoredSection = sectionOptions.some((sectionItem) => normalizeText(sectionItem.value) === normalizeText(state.teacherProfileSection));
+  state.teacherProfileSection = hasStoredSection ? state.teacherProfileSection : sectionOptions[0]?.value || "";
+  const rosterStudents = getStudentsForTeacherSection(teacherName, state.teacherProfileSection);
+  const selectedStudent = rosterStudents.find((student) => student.id === state.selectedStudentId) || rosterStudents[0];
 
-  if (!selectedStudent) {
+  if (!visibleStudents.length) {
     refs.sections.profile.innerHTML = `<article class="empty-card"><h3>Sin alumnos asignados</h3><p>No hay alumnos vinculados a tus aulas en este momento.</p></article>`;
     return;
   }
 
+  if (!selectedStudent) {
+    refs.sections.profile.innerHTML = `
+      ${renderSectionHeader("Mis alumnos por seccion", "La seccion activa aun no tiene estudiantes matriculados.")}
+      <article class="glass-card">
+        <label class="field">
+          <span>Aula asignada</span>
+          <select id="teacherProfileSectionFilter">
+            ${sectionOptions.map((sectionItem) => `<option value="${escapeHtml(sectionItem.value)}" ${sectionItem.value === state.teacherProfileSection ? "selected" : ""}>${escapeHtml(sectionItem.label)}</option>`).join("")}
+          </select>
+        </label>
+      </article>
+      <article class="empty-card"><h3>Sin matriculados en esta aula</h3><p>Cambia de seccion para revisar otro grupo o espera a que administracion termine la matricula.</p></article>
+    `;
+    return;
+  }
+
+  state.selectedStudentId = selectedStudent.id;
   const grades = state.data.grades.filter((grade) =>
     grade.studentId === selectedStudent.id &&
     normalizeText(grade.teacher) === normalizeText(teacherName)
   );
+  const selectedSection = sectionOptions.find((sectionItem) => normalizeText(sectionItem.value) === normalizeText(state.teacherProfileSection));
+  const sectionAssignments = getVisibleAcademicAssignments(teacherName)
+    .filter((assignment) => normalizeText(assignment.section) === normalizeText(state.teacherProfileSection));
+  const studentAttendance = state.data.attendance.filter((entry) => entry.studentId === selectedStudent.id);
+  const attendanceSummary = studentAttendance.length
+    ? `${studentAttendance.filter((entry) => entry.status === "Presente").length} presentes de ${studentAttendance.length} registros`
+    : "Sin asistencias registradas";
 
   refs.sections.profile.innerHTML = `
-    ${renderSectionHeader("Historial academico del alumno", "Vista restringida al area y a las evaluaciones que te corresponden como docente.")}
-    <div class="grid-two">
+    ${renderSectionHeader("Mis alumnos por seccion", "Consulta solo los estudiantes matriculados en las aulas que administracion te asigno y revisa su historial del area.", `
+      <div class="button-row">
+        <button class="button button-soft" type="button" data-open-section="academic">Registrar notas</button>
+        <button class="button button-secondary" type="button" data-open-section="attendance">Registrar asistencia</button>
+      </div>
+    `)}
+
+    <div class="inline-metrics">
+      <span class="tag">${sectionOptions.length} secciones asignadas</span>
+      <span class="tag">${visibleStudents.length} alumnos visibles</span>
+      <span class="tag">${sectionAssignments.length} cursos en el aula activa</span>
+    </div>
+
+    <div class="split-panel">
+      <article class="glass-card">
+        <h3>Seccion activa</h3>
+        <label class="field">
+          <span>Aula asignada</span>
+          <select id="teacherProfileSectionFilter">
+            ${sectionOptions.map((sectionItem) => `<option value="${escapeHtml(sectionItem.value)}" ${sectionItem.value === state.teacherProfileSection ? "selected" : ""}>${escapeHtml(sectionItem.label)}</option>`).join("")}
+          </select>
+        </label>
+        <div class="timeline-list">
+          ${rosterStudents.map((student) => `
+            <div class="timeline-item">
+              <strong>${escapeHtml(student.fullName)}</strong>
+              <p>${escapeHtml(student.dni)} · ${escapeHtml(`${student.grade} ${student.section}`)}</p>
+              <button class="link-button" type="button" data-select-student="${student.id}">Ver ficha</button>
+            </div>
+          `).join("") || '<div class="lookup-empty-card">No hay alumnos matriculados en esta seccion.</div>'}
+        </div>
+      </article>
+
       <article class="profile-card">
         <div class="profile-avatar">${initials(selectedStudent.fullName)}</div>
         <h3>${escapeHtml(selectedStudent.fullName)}</h3>
         <p class="supporting-copy">DNI ${escapeHtml(selectedStudent.dni)} · ${escapeHtml(`${selectedStudent.level} ${selectedStudent.grade} ${selectedStudent.section}`)}</p>
-      </article>
-      <article class="profile-card">
-        <h3>Historial del area</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Curso</th>
-                <th>Trimestre</th>
-                <th>Tipo</th>
-                <th>Nota</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${grades.map((grade) => `
-                <tr>
-                  <td>${escapeHtml(grade.course)}</td>
-                  <td>${escapeHtml(grade.trimester || normalizeTrimester(grade.period))}</td>
-                  <td>${escapeHtml(grade.assessmentType || "Examen de avance")}</td>
-                  <td>${grade.score}</td>
-                </tr>
-              `).join("") || '<tr><td colspan="4">No hay notas registradas para este alumno en tu area.</td></tr>'}
-            </tbody>
-          </table>
+        <div class="chip-row">
+          <span class="tag">${escapeHtml(selectedSection?.label || `${selectedStudent.level} ${selectedStudent.grade} ${selectedStudent.section}`)}</span>
+          <span class="tag">${escapeHtml(sectionAssignments.map((assignment) => assignment.course).join(", ") || "Sin curso asignado")}</span>
         </div>
+        <p><strong>Apoderado:</strong> ${escapeHtml(selectedStudent.guardianName)}</p>
+        <p><strong>Telefono:</strong> ${escapeHtml(selectedStudent.guardianPhone)}</p>
+        <p><strong>Asistencia:</strong> ${escapeHtml(attendanceSummary)}</p>
       </article>
     </div>
+
+    <article class="table-card">
+      <h3>Matriculados de ${escapeHtml(selectedSection?.label || "tu aula")}</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Alumno</th>
+              <th>DNI</th>
+              <th>Apoderado</th>
+              <th>Promedio del area</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rosterStudents.map((student) => `
+              <tr>
+                <td>${escapeHtml(student.fullName)}</td>
+                <td>${escapeHtml(student.dni)}</td>
+                <td>${escapeHtml(student.guardianName)}</td>
+                <td>${formatAverageValue(getCombinedAssignmentAverage(student.id, sectionAssignments))}</td>
+              </tr>
+            `).join("") || '<tr><td colspan="4">No hay alumnos matriculados en esta seccion.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="profile-card">
+      <h3>Historial del area</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Curso</th>
+              <th>Trimestre</th>
+              <th>Tipo</th>
+              <th>Nota</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${grades.map((grade) => `
+              <tr>
+                <td>${escapeHtml(grade.course)}</td>
+                <td>${escapeHtml(grade.trimester || normalizeTrimester(grade.period))}</td>
+                <td>${escapeHtml(grade.assessmentType || "Examen de avance")}</td>
+                <td>${grade.score}</td>
+              </tr>
+            `).join("") || '<tr><td colspan="4">No hay notas registradas para este alumno en tu area.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </article>
   `;
 };
 
@@ -4689,9 +5037,18 @@ function getAttendanceEntriesByDate(date) {
 }
 
 function getFilteredAttendanceRows() {
-  return getAttendanceEntriesByDate(state.attendanceFilters.date).filter((entry) => {
+  const filteredRows = getAttendanceEntriesByDate(state.attendanceFilters.date).filter((entry) => {
     return state.attendanceFilters.status === "Todos" || entry.status === state.attendanceFilters.status;
   });
+
+  if (state.session?.role !== "Docentes") {
+    return filteredRows;
+  }
+
+  const teacherStudents = new Set(
+    getStudentsForTeacherSection(getSessionDisplayName(), state.attendanceFilters.section).map((student) => student.id)
+  );
+  return filteredRows.filter((entry) => teacherStudents.has(entry.studentId));
 }
 
 function nextAttendanceId() {
@@ -4707,13 +5064,31 @@ function renderAttendanceSection() {
     return;
   }
 
-  const allowed = ["Administrador", "Direccion", "Secretaria"];
+  const teacherView = state.session?.role === "Docentes";
+  const teacherName = getSessionDisplayName();
+  const teacherSections = teacherView ? getTeacherSectionOptions(teacherName) : [];
+  if (teacherView) {
+    const currentSectionExists = teacherSections.some((sectionItem) => normalizeText(sectionItem.value) === normalizeText(state.attendanceFilters.section));
+    state.attendanceFilters.section = currentSectionExists
+      ? state.attendanceFilters.section
+      : teacherSections[0]?.value || "";
+  }
+
+  const allowed = ["Administrador", "Direccion", "Secretaria", "Docentes"];
   if (!allowed.includes(state.session?.role)) {
     refs.sections.attendance.innerHTML = `<article class="empty-card"><h3>Modulo no disponible</h3><p>El registro de asistencias esta habilitado solo para roles administrativos.</p></article>`;
     return;
   }
 
+  if (teacherView && !teacherSections.length) {
+    refs.sections.attendance.innerHTML = `<article class="empty-card"><h3>Sin secciones asignadas</h3><p>Administracion aun no te vincula a un aula para controlar la asistencia.</p></article>`;
+    return;
+  }
+
   const rows = getFilteredAttendanceRows();
+  const attendanceStudents = teacherView
+    ? getStudentsForTeacherSection(teacherName, state.attendanceFilters.section)
+    : state.data.students;
   const stats = {
     presente: rows.filter((entry) => entry.status === "Presente").length,
     tarde: rows.filter((entry) => entry.status === "Llego tarde").length,
@@ -4722,10 +5097,10 @@ function renderAttendanceSection() {
   };
 
   refs.sections.attendance.innerHTML = `
-    ${renderSectionHeader("Registro de asistencias", "Control diario de estudiantes con los estados presente, llego tarde, ausente y retirado.", `
+    ${renderSectionHeader(teacherView ? "Asistencia por seccion" : "Registro de asistencias", teacherView ? "Registra y revisa solo la asistencia de las aulas que administracion te asigno." : "Control diario de estudiantes con los estados presente, llego tarde, ausente y retirado.", `
       <div class="button-row">
         <button class="button button-soft" type="button" data-export-report="asistencias">Exportar Excel</button>
-        <button class="button button-secondary" type="button" data-print-report="asistencias">Imprimir A4</button>
+        ${teacherView ? `<button class="button button-secondary" type="button" data-open-section="profile">Ver mis alumnos</button>` : `<button class="button button-secondary" type="button" data-print-report="asistencias">Imprimir A4</button>`}
       </div>
     `)}
 
@@ -4746,6 +5121,13 @@ function renderAttendanceSection() {
         <h3>Retirados</h3>
         <p class="metric-number">${stats.retirado}</p>
       </article>
+      ${teacherView ? `
+        <article class="mini-card">
+          <h3>Aula activa</h3>
+          <p class="metric-number">${attendanceStudents.length}</p>
+          <p>${escapeHtml(teacherSections.find((sectionItem) => sectionItem.value === state.attendanceFilters.section)?.label || state.attendanceFilters.section)}</p>
+        </article>
+      ` : ""}
     </div>
 
     <div class="split-panel">
@@ -4753,6 +5135,12 @@ function renderAttendanceSection() {
         <h3>Registrar asistencia</h3>
         <form id="attendanceForm" class="form-stack">
           <div class="form-grid">
+            ${teacherView ? `
+              <label class="field">
+                <span>Seccion activa</span>
+                <input type="text" value="${escapeHtml(teacherSections.find((sectionItem) => sectionItem.value === state.attendanceFilters.section)?.label || state.attendanceFilters.section)}" readonly>
+              </label>
+            ` : ""}
             <label class="field">
               <span>Fecha</span>
               <input name="date" type="date" value="${escapeHtml(state.attendanceFilters.date)}" required>
@@ -4767,7 +5155,7 @@ function renderAttendanceSection() {
           <label class="field">
             <span>Alumno</span>
             <select name="studentId">
-              ${state.data.students.map((student) => `<option value="${student.id}">${escapeHtml(student.fullName)} · ${escapeHtml(`${student.grade} ${student.section}`)}</option>`).join("")}
+              ${attendanceStudents.map((student) => `<option value="${student.id}">${escapeHtml(student.fullName)} · ${escapeHtml(`${student.grade} ${student.section}`)}</option>`).join("")}
             </select>
           </label>
           <label class="field">
@@ -4779,8 +5167,16 @@ function renderAttendanceSection() {
       </article>
 
       <article class="table-card">
-        <h3>Filtro diario</h3>
+        <h3>${teacherView ? "Control diario del aula" : "Filtro diario"}</h3>
         <div class="compact-form-grid">
+          ${teacherView ? `
+            <label class="field">
+              <span>Seccion</span>
+              <select id="attendanceSectionFilter">
+                ${teacherSections.map((sectionItem) => `<option value="${escapeHtml(sectionItem.value)}" ${sectionItem.value === state.attendanceFilters.section ? "selected" : ""}>${escapeHtml(sectionItem.label)}</option>`).join("")}
+              </select>
+            </label>
+          ` : ""}
           <label class="field">
             <span>Fecha</span>
             <input id="attendanceDateFilter" type="date" value="${escapeHtml(state.attendanceFilters.date)}">
@@ -4804,18 +5200,31 @@ function renderAttendanceSection() {
               </tr>
             </thead>
             <tbody>
-              ${rows.map((entry) => {
-                const student = getStudentById(entry.studentId);
-                return `
-                  <tr>
-                    <td>${escapeHtml(student?.fullName || "Alumno")}</td>
-                    <td>${escapeHtml(student?.dni || "-")}</td>
-                    <td>${escapeHtml(student ? `${student.level} ${student.grade} ${student.section}` : "-")}</td>
-                    <td>${renderStatusPill(entry.status)}</td>
-                    <td>${escapeHtml(entry.notes || "-")}</td>
-                  </tr>
-                `;
-              }).join("") || '<tr><td colspan="5">No hay asistencias para el filtro actual.</td></tr>'}
+              ${(teacherView
+                ? attendanceStudents.map((student) => {
+                  const entry = rows.find((attendanceItem) => attendanceItem.studentId === student.id);
+                  return `
+                    <tr>
+                      <td>${escapeHtml(student.fullName)}</td>
+                      <td>${escapeHtml(student.dni)}</td>
+                      <td>${escapeHtml(`${student.level} ${student.grade} ${student.section}`)}</td>
+                      <td>${entry ? renderStatusPill(entry.status) : '<span class="tag">Sin marcar</span>'}</td>
+                      <td>${escapeHtml(entry?.notes || "-")}</td>
+                    </tr>
+                  `;
+                }).join("")
+                : rows.map((entry) => {
+                  const student = getStudentById(entry.studentId);
+                  return `
+                    <tr>
+                      <td>${escapeHtml(student?.fullName || "Alumno")}</td>
+                      <td>${escapeHtml(student?.dni || "-")}</td>
+                      <td>${escapeHtml(student ? `${student.level} ${student.grade} ${student.section}` : "-")}</td>
+                      <td>${renderStatusPill(entry.status)}</td>
+                      <td>${escapeHtml(entry.notes || "-")}</td>
+                    </tr>
+                  `;
+                }).join("")) || '<tr><td colspan="5">No hay asistencias para el filtro actual.</td></tr>'}
             </tbody>
           </table>
         </div>
